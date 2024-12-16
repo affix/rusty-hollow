@@ -38,12 +38,14 @@ fn main() {
             
             /* Wait for the child to be stopped */
             let status = waitpid(child, None).unwrap();
+
+            /* Only proceed if the process is trapped */
             if status  == wait::WaitStatus::Stopped(child, Signal::SIGTRAP) {
                 println!("Child Process ({}) Trapped", child);
 
                 let regs = ptrace::getregs(child).unwrap();
 
-                println!("RIP: {:#x}", regs.rip);
+                println!("RIP address: {:#x}", regs.rip);
 
                 println!("Writing shellcode to child process...");
                 let mut addr = regs.rip as usize;
@@ -67,6 +69,4 @@ fn main() {
         },
         Err(e) => println!("Fork failed: {}", e),
     }
-
-    
 }
