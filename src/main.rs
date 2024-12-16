@@ -1,10 +1,9 @@
 use std::ffi::CString;
-use std::thread::sleep;
-
 use nix::libc;
 use nix::unistd::{fork , ForkResult, execve};
 use nix::sys::ptrace;
 use nix::sys::wait::waitpid;
+
 fn main() {   
     // msfvenom -p linux/x64/exec CMD=whoami -f rust
     let shellcode: [u8; 43] = [
@@ -35,7 +34,6 @@ fn main() {
          },
         Ok(ForkResult::Parent { child, ..}) => {
             println!("I'm the parent!, My child is {}", child);
-            sleep(std::time::Duration::from_secs(5));
             
             /* Wait for the child to be stopped */
             match waitpid(child, None) {
