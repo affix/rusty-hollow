@@ -41,7 +41,7 @@ fn main() {
                     println!("Child stopped: {:?}", status);
                     match ptrace::getregs(child) {
                         Ok(regs) => {
-                            println!("RIP: {:?}", regs.rip);
+                            println!("RIP: {:#x}", regs.rip);
 
                             println!("Writing shellcode to child process...");
                             let mut addr = regs.rip as usize;
